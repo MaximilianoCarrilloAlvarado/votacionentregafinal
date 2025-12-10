@@ -1,0 +1,85 @@
+@startuml ClassDiagram
+skinparam classAttributeIconSize 0
+
+package "model" {
+  interface Observador {
+    + display(): void
+  }
+
+  class Ciudadano {
+    - nombre: String
+    - id: int
+    - distrito: Distrito
+    + Ciudadano(nombre:String, id:int, distrito:Distrito)
+    + getNombre(): String
+    + getId(): int
+    + getDistrito(): Distrito
+  }
+
+  class Distrito {
+    - proyectos: List<String>
+    + CORREDORES: List<String>
+    + getProyectos(): List<String>
+    + getCorredores(): List<String>
+  }
+
+  class DistritoUno {
+    + DistritoUno()
+  }
+
+  class DistritoDos {
+    + DistritoDos()
+  }
+
+  DistritoUno -|> Distrito
+  DistritoDos -|> Distrito
+}
+
+package "controller" {
+  class CiudadanoController {
+    - ciudadanos: LinkedHashMap<Integer,Ciudadano>
+    + CiudadanoController()
+    + registrarCiudadano(nombre:String, id:int, distrito:Distrito): boolean
+    + registrarYMostrar(nombre:String, id:int, distrito:Distrito): boolean
+    + obtenerCiudadano(id:int): Ciudadano
+    + getAllCiudadanos(): Collection<Ciudadano>
+  }
+}
+
+class App {
+  + main(args: String[]): void
+}
+
+' Relationships / notes
+' Observador exists as a UI contract (display method). Ciudadano does not implement Observador in current code.
+Distrito "1" o-- "*" String : proyectos (per-district lists)
+Distrito "1" o-- "*" String : CORREDORES (static shared list)
+CiudadanoController "1" o-- "*" Ciudadano
+Ciudadano "1" --> "1" Distrito : pertenece a
+
+' Note: projects and corredores are represented as String entries in lists in the current implementation.
+
+package "ui" {
+  interface DisplayElement {
+    + display(): void
+  }
+
+  class ListaProyectosDisplay {
+    + showFor(c: Ciudadano): void
+  }
+
+  class NotificacionDisplay {
+    + notificarVotacion(controller: CiudadanoController, distrito: Distrito, mensaje: String): void
+    + notificarACiudadano(c: Ciudadano, mensaje: String): void
+  }
+
+  ListaProyectosDisplay ..|> DisplayElement
+  NotificacionDisplay ..|> DisplayElement
+}
+
+' UI relationships
+ListaProyectosDisplay --> Ciudadano : uses
+NotificacionDisplay --> CiudadanoController : uses
+NotificacionDisplay --> Ciudadano : uses
+
+@enduml
