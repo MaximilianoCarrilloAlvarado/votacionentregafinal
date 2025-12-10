@@ -1,11 +1,13 @@
 dao\ProyectoDAO.class
 ui\ListaProyectosDisplay.class
 controller\CiudadanoController.class
+model\Proyecto.class
 ui\App.class
 dao\DependientesDAO.class
 model\Ciudadano.class
 model\DisplayElement.class
 controller\DependientesController.class
+controller\VotoController$PendingBallot.class
 model\Dependientes.class
 model\Observador.class
 model\DistritoDos.class

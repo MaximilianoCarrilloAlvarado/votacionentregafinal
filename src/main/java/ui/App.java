@@ -15,6 +15,8 @@ public class App {
         try {
             Database.initSchema();
             System.out.println("[DB] Esquema inicializado o ya existente.");
+            // Sembrar proyectos por defecto desde las clases DistritoUno/Dos si la tabla está vacía
+            dao.ProyectoDAO.seedDefaultsIfEmpty();
         } catch (Exception ex) {
             System.out.println("[DB] No se pudo inicializar el esquema: " + ex.getMessage());
         }

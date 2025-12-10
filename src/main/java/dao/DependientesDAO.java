@@ -11,7 +11,8 @@ public class DependientesDAO {
         if (d == null) return false;
         // En modo en memoria no persistimos en BD.
         if (Database.IN_MEMORY) return true;
-        String sql = "INSERT INTO dependientes(curp_dependiente, nombre, curp_tutor, distrito) VALUES (?, ?, ?, ?) ON CONFLICT (curp_dependiente) DO UPDATE SET nombre = EXCLUDED.nombre, curp_tutor = EXCLUDED.curp_tutor, distrito = EXCLUDED.distrito;";
+        // H2 upsert using MERGE (we only support H2 now)
+        String sql = "MERGE INTO dependientes (curp_dependiente, nombre, curp_tutor, distrito) KEY(curp_dependiente) VALUES (?, ?, ?, ?);";
         try (Connection conn = Database.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, d.getCURPDependiente());
             ps.setString(2, d.getNombre());

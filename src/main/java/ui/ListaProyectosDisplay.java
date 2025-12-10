@@ -1,5 +1,6 @@
 package ui;
 
+import dao.ProyectoDAO;
 import model.Ciudadano;
 import model.Distrito;
 
@@ -16,7 +17,11 @@ public class ListaProyectosDisplay {
             return;
         }
 
-        java.util.List<String> proyectos = d.getProyectos();
+        java.util.List<String> proyectos = ProyectoDAO.listByDistrito(d);
+        // Fallback: si la tabla proyectos no tiene datos para este distrito, usar lista en código
+        if (proyectos == null || proyectos.isEmpty()) {
+            proyectos = d.getProyectos();
+        }
         if (proyectos == null || proyectos.isEmpty()) {
             System.out.println("  (ninguno)");
         } else {
@@ -26,9 +31,12 @@ public class ListaProyectosDisplay {
         }
         System.out.println();
 
-        // Mostrar también los corredores verdes (lista estática compartida por todos los distritos)
+        // Mostrar también los corredores verdes: leer desde la BD (proyectos globales) con fallback a la lista estática
         System.out.println("  Corredores verdes disponibles:");
-        java.util.List<String> corredores = Distrito.getCorredores();
+        java.util.List<String> corredores = ProyectoDAO.listGlobal();
+        if (corredores == null || corredores.isEmpty()) {
+            corredores = Distrito.getCorredores();
+        }
         if (corredores == null || corredores.isEmpty()) {
             System.out.println("    (ninguno)");
         } else {

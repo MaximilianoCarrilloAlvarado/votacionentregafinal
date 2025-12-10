@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import dao.ProyectoDAO;
 import dao.VotoDAO;
 import model.Ciudadano;
 import model.Dependientes;
@@ -30,6 +31,9 @@ public class VotoController {
 
 	private final Map<String, VoteRecord> records = new HashMap<>();
 	private final List<VoteEntry> voteEntries = new ArrayList<>();
+	// Pending ballots (curp -> pending selections). Only when a ballot has 2 district projects and 1 corredor
+	// will it be persisted atomically.
+	private final Map<String, PendingBallot> pending = new HashMap<>();
 
 	private final CiudadanoController ciudadanoController;
 	private final DependientesController dependientesController;
@@ -48,6 +52,12 @@ public class VotoController {
 		return null;
 	}
 
+	private static class PendingBallot {
+		final java.util.Set<String> districtProjects = new HashSet<>();
+		String corredor = null;
+		Distrito distrito = null;
+	}
+
 	private boolean estaRegistrado(String curp) {
 		return ciudadanoController.obtenerCiudadano(curp) != null || dependientesController.obtenerDependiente(curp) != null;
 	}
@@ -56,29 +66,45 @@ public class VotoController {
 	public synchronized boolean votarProyecto(String curpVotante, String proyecto) {
 		if (curpVotante == null || proyecto == null) return false;
 		if (!estaRegistrado(curpVotante)) return false; // no registrado
-
+		// Validar proyecto contra la BD
 		Distrito d = obtenerDistritoVotante(curpVotante);
 		if (d == null) return false; // sin distrito
 
-		List<String> proyectos = d.getProyectos();
-		if (proyectos == null || !proyectos.contains(proyecto)) return false; // proyecto no en lista
+		java.util.List<String> proyectosValidos = ProyectoDAO.listByDistrito(d);
+		if (proyectosValidos == null || !proyectosValidos.contains(proyecto)) return false; // proyecto no en BD
 
-		VoteRecord rec = records.computeIfAbsent(curpVotante, k -> new VoteRecord());
-		if (rec.districtProjects.contains(proyecto)) return false; // ya votó ese proyecto
-		if (rec.districtProjects.size() >= 2) return false; // ya usó sus 2 votos de distrito
+		// Si ya completó boleta previamente, no puede votar otra vez
+		if (records.containsKey(curpVotante)) return false;
 
-		rec.districtProjects.add(proyecto);
+		PendingBallot pb = pending.computeIfAbsent(curpVotante, k -> { PendingBallot nb = new PendingBallot(); nb.distrito = d; return nb; });
+		// Distrito consistente
+		if (pb.distrito != null && !pb.distrito.getClass().equals(d.getClass())) return false;
 
-		// Persistir en BD; si falla, deshacer en memoria
-		boolean saved = VotoDAO.saveVote(curpVotante, d, proyecto, null);
-		if (!saved) {
-			rec.districtProjects.remove(proyecto);
-			return false;
+		if (pb.districtProjects.contains(proyecto)) return false; // ya lo seleccionó en pending
+		if (pb.districtProjects.size() >= 2) return false; // ya seleccionó 2 proyectos
+
+		pb.districtProjects.add(proyecto);
+
+		// Si la boleta ya tiene 2 proyectos y corredor -> persistir atómicamente
+		if (pb.districtProjects.size() == 2 && pb.corredor != null) {
+			boolean saved = VotoDAO.saveBallot(curpVotante, pb.distrito, new java.util.ArrayList<>(pb.districtProjects), pb.corredor);
+			if (!saved) {
+				// deshacer pending
+				pending.remove(curpVotante);
+				return false;
+			}
+			// trasladar a registros completados
+			VoteRecord rec = new VoteRecord();
+			rec.districtProjects.addAll(pb.districtProjects);
+			rec.corredorProjects.add(pb.corredor);
+			records.put(curpVotante, rec);
+			// guardar entradas individuales en memoria
+			for (String proj : pb.districtProjects) {
+				voteEntries.add(new VoteEntry(curpVotante, pb.distrito, proj, null));
+			}
+			voteEntries.add(new VoteEntry(curpVotante, null, null, pb.corredor));
+			pending.remove(curpVotante);
 		}
-
-		// Guardar entrada de voto en memoria
-		VoteEntry e = new VoteEntry(curpVotante, d, proyecto, null);
-		voteEntries.add(e);
 		return true;
 	}
 
@@ -96,26 +122,32 @@ public class VotoController {
 	public synchronized boolean votarCorredor(String curpVotante, String corredor) {
 		if (curpVotante == null || corredor == null) return false;
 		if (!estaRegistrado(curpVotante)) return false;
-
-		List<String> corredores = Distrito.getCorredores();
+		// Validar corredor usando la BD (proyectos globales)
+		java.util.List<String> corredores = ProyectoDAO.listGlobal();
 		if (corredores == null || !corredores.contains(corredor)) return false;
 
-		VoteRecord rec = records.computeIfAbsent(curpVotante, k -> new VoteRecord());
-		if (rec.corredorProjects.contains(corredor)) return false; // ya votó ese corredor
-		if (rec.corredorProjects.size() >= 1) return false; // ya usó su voto de corredor
+		// Si ya completó boleta previamente, no puede votar otra vez
+		if (records.containsKey(curpVotante)) return false;
 
-		rec.corredorProjects.add(corredor);
+		PendingBallot pb = pending.computeIfAbsent(curpVotante, k -> new PendingBallot());
+		if (pb.corredor != null) return false; // ya seleccionó corredor en pending
 
-		// Persistir en BD; si falla, deshacer en memoria
-		boolean savedCor = VotoDAO.saveVote(curpVotante, null, null, corredor);
-		if (!savedCor) {
-			rec.corredorProjects.remove(corredor);
-			return false;
+		pb.corredor = corredor;
+		// If district projects already selected (2) then persist atomically
+		if (pb.districtProjects.size() == 2) {
+			boolean saved = VotoDAO.saveBallot(curpVotante, pb.distrito, new java.util.ArrayList<>(pb.districtProjects), pb.corredor);
+			if (!saved) {
+				pending.remove(curpVotante);
+				return false;
+			}
+			VoteRecord rec = new VoteRecord();
+			rec.districtProjects.addAll(pb.districtProjects);
+			rec.corredorProjects.add(pb.corredor);
+			records.put(curpVotante, rec);
+			for (String proj : pb.districtProjects) voteEntries.add(new VoteEntry(curpVotante, pb.distrito, proj, null));
+			voteEntries.add(new VoteEntry(curpVotante, null, null, pb.corredor));
+			pending.remove(curpVotante);
 		}
-
-		// Guardar entrada de voto en memoria
-		VoteEntry e = new VoteEntry(curpVotante, null, null, corredor);
-		voteEntries.add(e);
 		return true;
 	}
 
